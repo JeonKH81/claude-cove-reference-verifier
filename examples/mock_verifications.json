@@ -1,0 +1,68 @@
+[
+  {
+    "idx": 1,
+    "raw": "Neumann FJ, Sousa-Uva M, Ahlsson A, et al. 2018 ESC/EACTS Guidelines on myocardial revascularization. Eur Heart J. 2019;40(2):87-165. doi:10.1093/eurheartj/ehy394. PMID: 30165437.",
+    "verdict": "verified",
+    "field_diffs": {
+      "pmid":   {"user": "30165437", "ground_truth": "30165437", "match": true},
+      "authors":{"user": "Neumann FJ, Sousa-Uva M, Ahlsson A, et al.", "ground_truth": "Neumann FJ, Sousa-Uva M, Ahlsson A, ...", "match": true},
+      "title":  {"user": "2018 ESC/EACTS Guidelines on myocardial revascularization", "ground_truth": "2018 ESC/EACTS Guidelines on myocardial revascularization", "match": true},
+      "journal":{"user": "Eur Heart J", "ground_truth": "European Heart Journal", "match": true},
+      "year":   {"user": "2019", "ground_truth": "2019", "match": true},
+      "volume": {"user": "40", "ground_truth": "40", "match": true},
+      "pages":  {"user": "87-165", "ground_truth": "87-165", "match": true}
+    },
+    "claim_support": null,
+    "corrected_citation_vancouver": "Neumann FJ, Sousa-Uva M, Ahlsson A, et al. 2018 ESC/EACTS Guidelines on myocardial revascularization. Eur Heart J. 2019;40(2):87-165.",
+    "notes": "All atomic fields verified against PubMed (PMID 30165437)."
+  },
+  {
+    "idx": 2,
+    "raw": "Smith JR, Patel KK, Garcia M. Deep learning derived FFR predicts MACE in NSTEMI patients: a multicenter cohort. J Am Coll Cardiol. 2024;83(11):1102-1115. PMID: 99999999.",
+    "verdict": "hallucinated",
+    "field_diffs": {
+      "pmid":   {"user": "99999999", "ground_truth": null, "match": false},
+      "authors":{"user": "Smith JR, Patel KK, Garcia M", "ground_truth": null, "match": false},
+      "title":  {"user": "Deep learning derived FFR predicts MACE in NSTEMI patients: a multicenter cohort", "ground_truth": null, "match": false},
+      "journal":{"user": "J Am Coll Cardiol", "ground_truth": null, "match": false},
+      "year":   {"user": "2024", "ground_truth": null, "match": false},
+      "volume": {"user": "83", "ground_truth": null, "match": false},
+      "pages":  {"user": "1102-1115", "ground_truth": null, "match": false}
+    },
+    "claim_support": null,
+    "corrected_citation_vancouver": null,
+    "notes": "PMID 99999999 not found via convert_article_ids. Title+author back-search returned 0 plausible matches (no titles with Jaro-Winkler >= 0.6). Likely hallucinated reference; recommend removing or replacing with a verified citation."
+  },
+  {
+    "idx": 3,
+    "raw": "Levine GN, Bates ER, Bittl JA, et al. 2016 ACC/AHA Guideline Focused Update on Duration of Dual Antiplatelet Therapy in Patients With Coronary Artery Disease. Circulation. 2016;134(10):e123-e155. doi:10.1161/CIR.0000000000000404.",
+    "verdict": "partial_mismatch",
+    "field_diffs": {
+      "pmid":   {"user": null, "ground_truth": "27026020", "match": false},
+      "authors":{"user": "Levine GN, Bates ER, Bittl JA, et al.", "ground_truth": "Levine GN, Bates ER, Bittl JA, ...", "match": true},
+      "title":  {"user": "2016 ACC/AHA Guideline Focused Update on Duration of Dual Antiplatelet Therapy in Patients With Coronary Artery Disease", "ground_truth": "2016 ACC/AHA Guideline Focused Update on Duration of Dual Antiplatelet Therapy in Patients With Coronary Artery Disease", "match": true},
+      "journal":{"user": "Circulation", "ground_truth": "Circulation", "match": true},
+      "year":   {"user": "2016", "ground_truth": "2016", "match": true},
+      "volume": {"user": "134", "ground_truth": "134", "match": true},
+      "pages":  {"user": "e123-e155", "ground_truth": "e123-e155", "match": true}
+    },
+    "claim_support": null,
+    "corrected_citation_vancouver": "Levine GN, Bates ER, Bittl JA, et al. 2016 ACC/AHA Guideline Focused Update on Duration of Dual Antiplatelet Therapy in Patients With Coronary Artery Disease. Circulation. 2016;134(10):e123-e155. PMID: 27026020.",
+    "notes": "All metadata fields match. PMID is missing in user citation; suggested addition: 27026020."
+  },
+  {
+    "idx": 4,
+    "raw": "Park J, Kim DY, Lee S, Choi WJ. AI-augmented angiography for instantaneous wave-free ratio: validation in 2,500 lesions. Lancet Digital Health. 2025;7(2):e45-e58. PMID: 12345678.",
+    "verdict": "unverifiable",
+    "field_diffs": {
+      "pmid":   {"user": "12345678", "ground_truth": null, "match": false},
+      "authors":{"user": "Park J, Kim DY, Lee S, Choi WJ", "ground_truth": null, "match": false},
+      "title":  {"user": "AI-augmented angiography for instantaneous wave-free ratio: validation in 2,500 lesions", "ground_truth": null, "match": false},
+      "journal":{"user": "Lancet Digital Health", "ground_truth": null, "match": false},
+      "year":   {"user": "2025", "ground_truth": null, "match": false}
+    },
+    "claim_support": null,
+    "corrected_citation_vancouver": null,
+    "notes": "PMID 12345678 maps to an unrelated 1990s article; title-author back-search returned no matches. Could be a future/preprint not yet indexed. Manual verification required."
+  }
+]

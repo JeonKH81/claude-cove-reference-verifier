@@ -1,0 +1,13 @@
+Background
+
+Some text with citations [1,2,3] in the body.
+
+References
+
+1. Neumann FJ, Sousa-Uva M, Ahlsson A, et al. 2018 ESC/EACTS Guidelines on myocardial revascularization. Eur Heart J. 2019;40(2):87-165. doi:10.1093/eurheartj/ehy394. PMID: 30165437.
+
+2. Smith JR, Patel KK, Garcia M. Deep learning derived FFR predicts MACE in NSTEMI patients: a multicenter cohort. J Am Coll Cardiol. 2024;83(11):1102-1115. PMID: 99999999.
+
+3. Levine GN, Bates ER, Bittl JA, et al. 2016 ACC/AHA Guideline Focused Update on Duration of Dual Antiplatelet Therapy in Patients With Coronary Artery Disease. Circulation. 2016;134(10):e123-e155. doi:10.1161/CIR.0000000000000404.
+
+4. Park J, Kim DY, Lee S, Choi WJ. AI-augmented angiography for instantaneous wave-free ratio: validation in 2,500 lesions. Lancet Digital Health. 2025;7(2):e45-e58. PMID: 12345678.
