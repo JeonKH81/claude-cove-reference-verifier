@@ -173,8 +173,12 @@ CoVe 논문 Limitations 섹션을 그대로 적용:
 ## 파일 구조
 
 ```
-cove-reference-verifier/
-├── SKILL.md                              # 본 파일
+claude-cove-reference-verifier/
+├── .claude-plugin/
+│   └── plugin.json                       # 플러그인 메타데이터
+├── skills/
+│   └── cove-reference-verifier/
+│       └── SKILL.md                      # 본 파일
 ├── references/
 │   ├── cove_method.md                    # CoVe 논문 핵심 + 본 skill의 4 원칙
 │   └── verification_prompts.md           # Q1–Q6 + cross-check prompt 템플릿
