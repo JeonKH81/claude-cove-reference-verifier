@@ -61,14 +61,56 @@ cove-reference-verifier/
     └── sample_report.md           # Example output report
 ```
 
+## Installation
+
+### 1. Clone this repository
+
+```bash
+git clone https://github.com/JeonKH81/claude-cove-reference-verifier.git
+```
+
+### 2. Register as a Claude Code skill
+
+Claude Code에서 이 skill을 사용하려면 `CLAUDE.md` 또는 Claude Code 설정에 skill 경로를 등록해야 합니다.
+
+**방법 A — 프로젝트별 등록** (특정 프로젝트에서만 사용):
+
+프로젝트 루트의 `CLAUDE.md`에 아래 내용을 추가하세요:
+
+```markdown
+## Skills
+
+- path/to/claude-cove-reference-verifier/SKILL.md
+```
+
+**방법 B — 전역 등록** (모든 프로젝트에서 사용):
+
+`~/.claude/CLAUDE.md` 파일에 동일하게 추가하세요:
+
+```markdown
+## Skills
+
+- /absolute/path/to/claude-cove-reference-verifier/SKILL.md
+```
+
+### 3. Enable PubMed MCP
+
+이 skill은 PubMed MCP 도구가 필요합니다. [Claude Cowork](https://claude.ai/code) 환경에서 PubMed connector를 활성화하세요.
+
+### 4. Install python-docx (optional)
+
+`.docx` 파일 입력 또는 Word 리포트 출력이 필요한 경우:
+
+```bash
+pip install python-docx
+```
+
 ## Requirements
 
-- Claude Code with PubMed MCP enabled (Cowork mode)
+- Claude Code (CLI or desktop app)
+- PubMed MCP connector (Cowork mode)
 - Python 3.10+
-- `python-docx` for `.docx` input/output:
-  ```bash
-  pip install python-docx
-  ```
+- `python-docx` — `.docx` 입출력 시에만 필요
 
 ## Limitations
 
