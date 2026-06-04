@@ -59,7 +59,7 @@
 
 ```
 도구 호출:
-  mcp__pubmed__get_article_metadata(pmid="{verified_pmid}")
+  mcp__pubmed__get_article_metadata(pmids=["{verified_pmid}"])
 
 LLM 판단:
   Question: "What are the listed authors for this PubMed article?"
@@ -71,7 +71,7 @@ LLM 판단:
 
 ```
 도구 호출:
-  mcp__pubmed__get_article_metadata(pmid="{verified_pmid}")
+  mcp__pubmed__get_article_metadata(pmids=["{verified_pmid}"])
 
 LLM 판단:
   Question: "What journal published this article and in what year?"
@@ -86,7 +86,7 @@ Q4와 동일한 도구 호출 결과에서 volume/pages 필드만 추출.
 
 ```
 도구 호출:
-  mcp__pubmed__get_article_metadata(pmid="{verified_pmid}")  → abstract 필드
+  mcp__pubmed__get_article_metadata(pmids=["{verified_pmid}"])  → abstract 필드
 
 LLM 판단 (claim_check_prompt):
   System: "당신은 의학 논문 fact-checker입니다. 다음 abstract만을 근거로 판단하세요. abstract에 없는 사실은 모두 'not in abstract'로 응답하세요."

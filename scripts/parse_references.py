@@ -59,7 +59,18 @@ RE_YEAR = re.compile(r"(?<!\d)(18\d{2}|19\d{2}|20\d{2})(?!\d)")
 
 # Vancouver-style: "Authors. Title. Journal. Year;Vol(Issue):Pages."
 RE_VANCOUVER_VOL_PAGES = re.compile(
-    r";\s*(?P<vol>\d+)\s*(?:\((?P<issue>[^)]+)\))?\s*:\s*(?P<pages>[\dA-Za-z\-–\s,]+?)\."
+    r";\s*(?P<vol>\d+)\s*(?:\((?P<issue>[^)]+)\))?\s*:\s*(?P<pages>[\dA-Za-z\-–\s,]+?)[.\s]"
+)
+
+# Article number (e.g. ":e12345", "Article e12345", ":20193456")
+RE_ARTICLE_NUMBER = re.compile(r"(?::\s*e|article\s+e?)(\d{4,})\b", re.IGNORECASE)
+
+# APA-style year in parens after authors: "Author, A. (2024). Title..."
+RE_APA_YEAR = re.compile(r"\((\d{4})\)\.")
+
+# APA-style volume/pages: "Journal, 12(3), 45–60."
+RE_APA_VOL_PAGES = re.compile(
+    r",\s*(?P<vol>\d+)\s*(?:\((?P<issue>[^)]+)\))?\s*,\s*(?P<pages>[\dA-Za-z\-–]+)\."
 )
 
 # Reference 섹션 헤더 패턴 (한국어/영어/번호식)
@@ -154,43 +165,75 @@ def extract_doi(s: str) -> str | None:
 
 
 def extract_year(s: str) -> str | None:
-    # 마지막 4자리 연도가 보통 publication year
+    # APA: year in parentheses "(2024)." takes priority
+    m = RE_APA_YEAR.search(s)
+    if m:
+        return m.group(1)
+    # Vancouver/other: last 4-digit year
     years = RE_YEAR.findall(s)
     return years[-1] if years else None
 
 
-def extract_authors_title_journal(item: str) -> dict[str, Any]:
-    """Vancouver/AMA 스타일을 가정하고 best-effort로 author/title/journal을 분리.
+def _split_authors(authors_str: str) -> list[str]:
+    """Author 문자열을 개별 저자 리스트로 분리 (et al. 제거)."""
+    cleaned = re.sub(r"\bet\s+al\.?", "", authors_str, flags=re.IGNORECASE).strip(", ")
+    return [a.strip().rstrip(".") for a in re.split(r",\s*|\s+and\s+|&\s*", cleaned) if a.strip()]
 
-    전형 패턴:
-      "Smith J, Doe A, Roe B. The title of the paper. J Med Sci. 2024;12(3):45-60."
+
+def _is_apa(item: str) -> bool:
+    """APA 스타일 휴리스틱: 저자 뒤에 "(YYYY)." 패턴이 있는지."""
+    return bool(RE_APA_YEAR.search(item))
+
+
+def extract_authors_title_journal(item: str) -> dict[str, Any]:
+    """Vancouver/AMA/APA 스타일 best-effort 분리.
+
+    Vancouver/AMA:
+      "Smith J, Doe A. The title. J Med Sci. 2024;12(3):45-60."
+    APA:
+      "Smith, J., & Doe, A. (2024). The title. J Med Sci, 12(3), 45-60."
     """
-    # Vancouver에서 첫 번째 마침표 + 공백 = author 끝
+    if _is_apa(item):
+        # APA: 저자는 "(YYYY)." 이전, 제목은 "(YYYY). " 이후 첫 문장, 저널은 그다음
+        year_match = RE_APA_YEAR.search(item)
+        authors_str = item[: year_match.start()].strip().rstrip(",")
+        after_year = item[year_match.end():].strip()
+        apa_parts = re.split(r"\.\s+", after_year, maxsplit=2)
+        title = apa_parts[0].strip() if apa_parts else None
+        # 저널은 콤마 기준 첫 토큰 (APA: "J Med Sci, 12(3), 45-60.")
+        journal_raw = apa_parts[1].strip() if len(apa_parts) > 1 else None
+        journal = journal_raw.split(",")[0].strip() if journal_raw else None
+        return {"authors": _split_authors(authors_str), "title": title, "journal": journal}
+
+    # Vancouver/AMA: 첫 마침표+공백 = author 끝
     parts = re.split(r"(?<=[\w\)])\.\s+", item, maxsplit=3)
     authors_str = parts[0].strip() if parts else ""
     title = parts[1].strip().rstrip(".") if len(parts) > 1 else None
-    journal = parts[2].strip().rstrip(".") if len(parts) > 2 else None
+    journal_raw = parts[2].strip() if len(parts) > 2 else None
+    # 저널에서 연도/권호 잘라내기 ("J Med Sci. 2024;12" → "J Med Sci")
+    journal = re.split(r"\.\s+\d{4}|;\s*\d", journal_raw)[0].strip() if journal_raw else None
 
-    # author 분해
-    authors = []
-    if authors_str:
-        # "Smith J, Doe A" 또는 "Smith J., Doe A." 또는 "Smith J and Doe A"
-        # 마지막 author는 "et al." 처리
-        cleaned = re.sub(r"\bet\s+al\.?", "", authors_str, flags=re.IGNORECASE).strip(", ")
-        authors = [a.strip().rstrip(".") for a in re.split(r",\s*|\sand\s", cleaned) if a.strip()]
-
-    return {
-        "authors": authors,
-        "title": title,
-        "journal": journal,
-    }
+    return {"authors": _split_authors(authors_str), "title": title, "journal": journal}
 
 
 def extract_volume_pages(item: str) -> tuple[str | None, str | None]:
+    # Vancouver: "2024;12(3):45-60"
     m = RE_VANCOUVER_VOL_PAGES.search(item)
-    if not m:
-        return None, None
-    return m.group("vol"), m.group("pages").strip()
+    if m:
+        pages = m.group("pages").strip()
+        # Treat article numbers (e.g. "e12345", purely numeric 5+) as pages
+        if re.fullmatch(r"e?\d{5,}", pages.replace(" ", "")):
+            pages = pages.strip()
+        return m.group("vol"), pages
+    # APA: "Journal, 12(3), 45-60."
+    m = RE_APA_VOL_PAGES.search(item)
+    if m:
+        return m.group("vol"), m.group("pages").strip()
+    # Article number only (":e12345" or "Article e12345")
+    m_art = RE_ARTICLE_NUMBER.search(item)
+    if m_art:
+        return None, m_art.group(1)
+    return None, None
 
 
 # --------------------------------------------------------------------------- #

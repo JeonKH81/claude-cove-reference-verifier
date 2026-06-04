@@ -78,6 +78,25 @@ cat manuscript.md | python scripts/parse_references.py
 
 병렬화 권장: 여러 reference의 Q1을 한 번에 (가능하면 batch) 호출한 뒤, 다음으로 모든 Q2를 호출하는 방식. 본 skill에서는 reference별로 순차 처리해도 무방하지만 30개 이상이면 병렬화 고려.
 
+**실행 후 저장**: 각 reference의 Q1–Q6 결과와 cross-check 결과를 다음 구조로 메모리에 누적하고, 전체가 끝난 뒤 `/tmp/verifications.json`에 저장한다. 이 파일이 `render_report.py`의 입력이 되며, Claude가 직접 이 JSON을 생성해야 한다.
+
+```json
+[
+  {
+    "idx": 1,
+    "raw": "...",
+    "verified_pmid": "12345678",
+    "verdict": "verified|partial_mismatch|hallucinated|unverifiable",
+    "field_diffs": { "pmid": {"user":"...", "ground_truth":"...", "match": true}, ... },
+    "claim_support": null,
+    "corrected_citation_vancouver": "...",
+    "notes": "..."
+  }
+]
+```
+
+이 파일이 `render_report.py`의 입력이 된다. Claude가 직접 이 JSON을 생성해야 하며, 도구 호출 결과를 빠짐없이 반영해야 한다.
+
 **Q1/Q2 결합 전략**:
 - Case A: `pmid` 또는 `doi`가 있으면 Q1 우선 → 매핑 성공 시 그 PMID를 verified_pmid로 채택.
 - Case B: `pmid`/`doi` 둘 다 없으면 Q2 (title+author 역검색)로 verified_pmid 결정.
@@ -97,6 +116,11 @@ partial_mismatch ← Q1 성공이지만 author/title/year/journal 중 ≥1개 mi
                    OR claim_support ∈ {partially_supported, not_in_abstract}
 verified         ← Q1 성공 AND 모든 field match=True
                    AND claim_support ∈ {supported, null}
+verified_no_pmid ← 사용자 reference에 PMID/DOI가 없었지만 Q2(title+author 역검색)로
+                   PMID를 확인했고 모든 field가 일치하는 경우.
+                   verdict="verified"로 기록하되 notes에
+                   "PMID not in original; found via title search → {pmid}" 표시.
+                   corrected_citation_vancouver에 PMID를 추가 제안.
 ```
 
 각 reference의 cross-check 결과를 모아 verifications JSON 배열로 저장한 뒤 리포트를 렌더링:
