@@ -3,10 +3,15 @@
 extract_claims.py
 =================
 원고 본문에서 citation을 문장 단위로 추출하고, 각 reference 번호 또는
-(저자, 연도) 키와 매핑하여 in_text_claim을 보강한다.
+(저자, 연도) 키와 매핑하여 in_text_claim과 in_text_context를 보강한다.
 
 CoVe Phase 1의 선택적 in-text claim 추출 단계에 해당.
-결과는 parse_references.py가 만든 refs.json의 in_text_claim 필드를 채운다.
+결과는 parse_references.py가 만든 refs.json의 두 필드를 채운다:
+  - in_text_claim:   citation이 등장하는 문장 (citation 마크업 제거)
+  - in_text_context: 해당 문장이 속한 단락 전체 (Q7 appropriateness 검토용)
+
+Q7 (Citation Appropriateness) 검토는 in_text_context가 있을 때만 활성화된다.
+reference list만 제공된 경우 두 필드 모두 null이며 Q1-Q6만 수행된다.
 
 지원 citation 스타일:
   - Vancouver 번호식: [1], [1,2,3], [1-3], (1), (1,2)
@@ -18,8 +23,9 @@ CoVe Phase 1의 선택적 in-text claim 추출 단계에 해당.
   python extract_claims.py manuscript.md   --refs refs.json --style vancouver
   cat body.txt | python extract_claims.py  --refs refs.json --style apa
 
-출력: refs.json과 동일한 구조이지만 해당 reference의 in_text_claim이 채워짐.
-      한 reference에 인용 문장이 여러 개이면 첫 번째 문장만 사용한다 (가장 대표적).
+출력: refs.json과 동일한 구조이지만 해당 reference의 in_text_claim,
+      in_text_context가 채워짐.
+      한 reference에 인용 문장이 여러 개이면 첫 번째 문장만 사용한다.
 """
 
 from __future__ import annotations
@@ -211,13 +217,23 @@ def _match_apa_key(apa_key: str, apa_index: dict[str, int]) -> list[int]:
 # --------------------------------------------------------------------------- #
 
 
+def _split_paragraphs(text: str) -> list[str]:
+    """빈 줄(또는 연속 줄바꿈) 기준으로 단락 분리."""
+    return [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
+
+
 def map_claims(
     sentences: list[str],
     refs: list[dict[str, Any]],
     style: str,
-) -> dict[int, str]:
-    """ref idx → 첫 번째 인용 문장 매핑."""
-    idx_to_claim: dict[int, str] = {}
+    paragraphs: list[str] | None = None,
+) -> dict[int, tuple[str, str | None]]:
+    """ref idx → (in_text_claim, in_text_context) 매핑.
+
+    in_text_claim:   citation이 있는 문장 (마크업 제거)
+    in_text_context: 해당 문장이 속한 단락 전체 (Q7용). paragraphs 없으면 None.
+    """
+    idx_to_result: dict[int, tuple[str, str | None]] = {}
     apa_index = _build_apa_index(refs) if style in {"apa", "auto"} else {}
 
     for sentence in sentences:
@@ -230,15 +246,27 @@ def map_claims(
             for key in _extract_apa_keys(sentence):
                 matched_indices.extend(_match_apa_key(key, apa_index))
 
-        for idx in matched_indices:
-            if idx not in idx_to_claim:
-                # 문장에서 citation 마크업을 제거하여 clean claim으로 저장
-                clean = re.sub(RE_VANCOUVER, "", sentence)
-                clean = re.sub(RE_APA, "", clean)
-                clean = re.sub(r"\s{2,}", " ", clean).strip()
-                idx_to_claim[idx] = clean
+        if not matched_indices:
+            continue
 
-    return idx_to_claim
+        # citation 마크업 제거한 clean 문장
+        clean = re.sub(RE_VANCOUVER, "", sentence)
+        clean = re.sub(RE_APA, "", clean)
+        clean = re.sub(r"\s{2,}", " ", clean).strip()
+
+        # 단락 찾기: sentence를 포함하는 단락
+        context: str | None = None
+        if paragraphs:
+            for para in paragraphs:
+                if sentence[:40] in para or clean[:40] in para:
+                    context = para
+                    break
+
+        for idx in matched_indices:
+            if idx not in idx_to_result:
+                idx_to_result[idx] = (clean, context)
+
+    return idx_to_result
 
 
 # --------------------------------------------------------------------------- #
@@ -282,14 +310,19 @@ def main() -> int:
         text = sys.stdin.read()
 
     sentences = split_sentences(text)
-    claims = map_claims(sentences, refs, args.style)
+    paragraphs = _split_paragraphs(text)
+    claims = map_claims(sentences, refs, args.style, paragraphs)
 
     filled = 0
     for ref in refs:
         idx = ref["idx"]
         if idx in claims:
-            ref["in_text_claim"] = claims[idx]
+            claim, context = claims[idx]
+            ref["in_text_claim"] = claim
+            ref["in_text_context"] = context
             filled += 1
+        else:
+            ref.setdefault("in_text_context", None)
 
     payload = json.dumps(refs, ensure_ascii=False, indent=2)
     if args.output:

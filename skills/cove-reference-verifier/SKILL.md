@@ -54,23 +54,36 @@ cat manuscript.md | python scripts/parse_references.py
 산출물 (JSON):
 ```json
 [{"idx":1, "raw":"...", "pmid":"...", "doi":"...", "authors":[...], "title":"...",
-  "journal":"...", "year":"...", "volume":"...", "pages":"...", "in_text_claim": null}, ...]
+  "journal":"...", "year":"...", "volume":"...", "pages":"...",
+  "in_text_claim": null, "in_text_context": null}, ...]
 ```
 
-**In-text claim 추출 (선택)**: 사용자가 manuscript 본문도 제공한 경우, 각 reference 번호가 인용된 문장을 함께 추출하여 `in_text_claim` 필드에 채운다 (Phase 3 Q6에서 사용).
+**In-text claim + context 추출 (선택)**: 사용자가 manuscript 본문도 제공한 경우 아래 스크립트를 실행한다.
+
+```bash
+python scripts/extract_claims.py <manuscript_path> --refs /tmp/refs.json -o /tmp/refs.json
+```
+
+- `in_text_claim`: citation이 등장하는 문장 (citation 마크업 제거). Q6에서 사용.
+- `in_text_context`: 해당 문장이 속한 단락 전체. **Q7 Citation Appropriateness 검토에 사용.**
+
+**reference list만 제공된 경우**: 두 필드 모두 null로 유지하고 Q1–Q6만 수행한다. Q7은 건너뛴다.
 
 ### Phase 2 — Plan Verifications (논문 Step 2)
 
-각 reference `R_i`에 대해 **6종 atomic question**을 자동 생성한다 (`references/verification_prompts.md` 참조):
+각 reference `R_i`에 대해 **최대 7종 atomic question**을 자동 생성한다 (`references/verification_prompts.md` 참조):
 
-| # | Question | Tool | 필수성 |
-|---|----------|------|--------|
-| Q1 | `R_i.pmid`/`R_i.doi`가 PubMed에 존재하는가? | **반드시** `get_article_metadata` (DOI는 먼저 `convert_article_ids`로 PMID 변환 후) — `convert_article_ids`는 존재하지 않는 ID도 echo해서 돌려주므로 단독으로 쓰면 안 됨 | 필수 |
-| Q2 | Title+1st author로 역검색 시 PMID가 일치하는가? | `mcp__d2d22bd4-...__search_articles` | 필수 (PMID 없을 때 핵심) |
+| # | Question | Tool | 조건 |
+|---|----------|------|------|
+| Q1 | `R_i.pmid`/`R_i.doi`가 PubMed에 존재하는가? | `get_article_metadata` (DOI는 먼저 `convert_article_ids` 변환 후 재확인) | 필수 |
+| Q2 | Title+1st author로 역검색 시 PMID가 일치하는가? | `search_articles` | 필수 |
 | Q3 | (확정 PMID의) 저자는? | `get_article_metadata` | 필수 |
 | Q4 | (확정 PMID의) 저널·연도는? | `get_article_metadata` | 필수 |
-| Q5 | (확정 PMID의) 권·페이지는? | `get_article_metadata` | optional |
-| Q6 | abstract가 사용자의 in-text claim을 지지하는가? | `get_article_metadata` (abstract) + LLM 판정 | claim 있으면 필수 |
+| Q5 | (확정 PMID의) 권·페이지는? | `get_article_metadata` | 선택 |
+| Q6 | abstract가 in-text claim을 지지하는가? | `get_article_metadata` (abstract) + LLM | in_text_claim 있을 때 |
+| Q7 | 단락 맥락에서 이 인용이 적절하고 충실한가? | `get_article_metadata` (abstract) + LLM | in_text_context 있을 때 |
+
+**Q7 (Citation Appropriateness)**: 논문이 존재하는지와는 별개로, 저자가 그 논문을 올바른 맥락에서, 충실하게, 적절한 목적으로 인용했는지를 4개 sub-dimension(faithfulness / direction / scope / purpose)으로 판정한다. 원고 본문 없이 reference list만 들어온 경우 자동으로 건너뛴다.
 
 ### Phase 3 — Execute Verifications (논문 Step 3, **Factored**)
 
@@ -78,7 +91,9 @@ cat manuscript.md | python scripts/parse_references.py
 
 병렬화 권장: 여러 reference의 Q1을 한 번에 (가능하면 batch) 호출한 뒤, 다음으로 모든 Q2를 호출하는 방식. 본 skill에서는 reference별로 순차 처리해도 무방하지만 30개 이상이면 병렬화 고려.
 
-**실행 후 저장**: 각 reference의 Q1–Q6 결과와 cross-check 결과를 다음 구조로 메모리에 누적하고, 전체가 끝난 뒤 `/tmp/verifications.json`에 저장한다. 이 파일이 `render_report.py`의 입력이 되며, Claude가 직접 이 JSON을 생성해야 한다.
+**Q7 실행**: `in_text_context`가 있는 reference에 대해, Q3-Q6와 동일한 도구 호출(abstract 포함)로 얻은 abstract + in_text_context를 입력으로 `references/verification_prompts.md`의 appropriateness_check_prompt를 실행한다. 원본 reference 문자열이나 parsed metadata는 이 prompt에 포함하지 않는다.
+
+**실행 후 저장**: 각 reference의 Q1–Q7 결과와 cross-check 결과를 다음 구조로 메모리에 누적하고, 전체가 끝난 뒤 `/tmp/verifications.json`에 저장한다. Claude가 직접 이 JSON을 생성해야 하며, 도구 호출 결과를 빠짐없이 반영해야 한다.
 
 ```json
 [
@@ -89,13 +104,22 @@ cat manuscript.md | python scripts/parse_references.py
     "verdict": "verified|partial_mismatch|hallucinated|unverifiable",
     "field_diffs": { "pmid": {"user":"...", "ground_truth":"...", "match": true}, ... },
     "claim_support": null,
+    "citation_appropriateness": {
+      "faithfulness": {"verdict": "accurate", "explanation": "..."},
+      "direction":    {"verdict": "correct",  "explanation": "..."},
+      "scope":        {"verdict": "appropriate", "explanation": "..."},
+      "purpose":      {"verdict": "appropriate", "explanation": "..."},
+      "overall": "appropriate",
+      "severity": "none",
+      "summary": "..."
+    },
     "corrected_citation_vancouver": "...",
     "notes": "..."
   }
 ]
 ```
 
-이 파일이 `render_report.py`의 입력이 된다. Claude가 직접 이 JSON을 생성해야 하며, 도구 호출 결과를 빠짐없이 반영해야 한다.
+`citation_appropriateness`는 `in_text_context`가 null인 경우 필드 자체를 null로 둔다.
 
 **Q1/Q2 결합 전략**:
 - Case A: `pmid` 또는 `doi`가 있으면 Q1 우선 → 매핑 성공 시 그 PMID를 verified_pmid로 채택.

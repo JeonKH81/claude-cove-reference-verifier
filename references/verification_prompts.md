@@ -4,20 +4,23 @@
 
 ---
 
-## Phase 2 — 한 개의 reference에 대해 자동으로 던질 질문 6종
+## Phase 2 — 한 개의 reference에 대해 자동으로 던질 질문 7종
 
-각 reference 항목 `R_i = {pmid?, doi?, authors, title, journal, year, volume?, pages?, in-text claim?}`에 대해 다음 6가지를 자동 생성한다.
+각 reference 항목 `R_i = {pmid?, doi?, authors, title, journal, year, volume?, pages?, in_text_claim?, in_text_context?}`에 대해 다음 7가지를 자동 생성한다.
 
-| # | Question type | 묻는 atomic fact | 도구 |
-|---|---------------|------------------|------|
-| Q1 | **Existence** | `R_i.pmid` 또는 `R_i.doi`가 PubMed에 실제로 존재하는가? | `mcp__pubmed__convert_article_ids` 또는 `get_article_metadata` |
-| Q2 | **Title-Author retrieval** | "Title=`R_i.title`, First author=`R_i.authors[0]`"로 검색 시 PMID가 일치하는가? | `mcp__pubmed__search_articles` |
-| Q3 | **Authorship** | (Q1/Q2에서 얻은 정식 PMID의) authors는? | `get_article_metadata` |
-| Q4 | **Journal/Year** | (정식 PMID의) journal과 publication year는? | `get_article_metadata` |
-| Q5 | **Volume/Pages** (선택) | (정식 PMID의) volume과 pages는? | `get_article_metadata` |
-| Q6 | **Claim verification** (선택) | "사용자가 인용한 in-text claim이 abstract에 명시적으로 등장하는가?" | `get_article_metadata` (abstract) → LLM 일치성 판단 |
+| # | Question type | 묻는 atomic fact | 도구 | 조건 |
+|---|---------------|------------------|------|------|
+| Q1 | **Existence** | `R_i.pmid` 또는 `R_i.doi`가 PubMed에 실제로 존재하는가? | `get_article_metadata` | 필수 |
+| Q2 | **Title-Author retrieval** | "Title=`R_i.title`, First author=`R_i.authors[0]`"로 검색 시 PMID가 일치하는가? | `search_articles` | 필수 |
+| Q3 | **Authorship** | (Q1/Q2에서 얻은 정식 PMID의) authors는? | `get_article_metadata` | 필수 |
+| Q4 | **Journal/Year** | (정식 PMID의) journal과 publication year는? | `get_article_metadata` | 필수 |
+| Q5 | **Volume/Pages** | (정식 PMID의) volume과 pages는? | `get_article_metadata` | 선택 |
+| Q6 | **Claim support** | in_text_claim이 abstract에 명시적으로 등장하는가? | `get_article_metadata` (abstract) + LLM | in_text_claim 있을 때 |
+| Q7 | **Citation appropriateness** | 단락 맥락에서 이 인용이 적절하고 충실한가? | `get_article_metadata` (abstract) + LLM | in_text_context 있을 때 |
 
-**중요**: Q3–Q6의 prompt는 사용자가 적은 원본 author/title/journal/year를 **포함하지 않는다**. 오직 정식 PMID만 전달한다. 이것이 Factored의 핵심.
+**핵심 원칙**: Q3–Q7의 prompt는 사용자가 적은 원본 author/title/journal/year를 **포함하지 않는다**. 오직 정식 PMID만 전달한다.
+
+**Q7 활성화 조건**: 원고 본문이 함께 제공된 경우에만 실행. reference list만 있으면 Q1-Q6까지만 수행.
 
 ---
 
@@ -103,6 +106,66 @@ LLM 판단 (claim_check_prompt):
     - 'partially_supported' (related but not the exact claim)
     - 'not_in_abstract' (no support in abstract; full text needed)
     - 'contradicted' (abstract states the opposite)"
+```
+
+### Q7 prompt template (Citation Appropriateness, in_text_context 있을 때만)
+
+Q7은 "이 논문이 존재하는가"가 아니라 "이 논문이 이 맥락에서 적절하게 인용됐는가"를 판단한다. 4개 sub-dimension을 독립적으로 평가한다.
+
+**중요**: 이 prompt에는 abstract(도구 반환값)와 in_text_context(단락 원문)만 들어간다. 원본 reference 문자열이나 파싱된 metadata는 포함하지 않는다.
+
+```
+도구 호출:
+  mcp__pubmed__get_article_metadata(pmids=["{verified_pmid}"])  → abstract, title 필드
+
+LLM 판단 (appropriateness_check_prompt):
+  System:
+  "당신은 의학 논문 인용 적절성 검토자입니다.
+  아래 [Abstract]와 [Manuscript paragraph]만을 근거로 판단하세요.
+  abstract 또는 단락에 없는 정보는 추론하거나 기억으로 채우지 마세요."
+
+  [Abstract of cited paper]
+  {abstract_text}
+
+  [Manuscript paragraph where citation appears]
+  {in_text_context}
+
+  다음 4가지 항목을 각각 독립적으로 평가하세요:
+
+  1. FAITHFULNESS — 저자가 이 논문의 내용을 충실하게 표현했는가?
+     - 'accurate': 단락의 표현이 abstract 내용과 일치함
+     - 'exaggerated': 논문보다 강한 결론으로 표현됨 (예: "경향" → "증명")
+     - 'understated': 논문보다 약하게 표현됨
+     - 'misrepresented': 핵심 내용이 왜곡됨
+
+  2. DIRECTION — 발견의 방향(효과 방향, 연관성 방향)이 맞는가?
+     - 'correct': 방향이 일치함
+     - 'reversed': 반대 방향으로 인용됨 (예: 감소 → 증가)
+     - 'not_applicable': 방향성이 없는 논문 (methods, review 등)
+
+  3. SCOPE — 인용된 증거의 범위/확실성 수준이 적절한가?
+     - 'appropriate': 연구 규모·설계가 맥락에 맞게 인용됨
+     - 'overstated': 파일럿/소규모 연구를 확립된 근거처럼 인용
+     - 'understated': 강한 근거를 약하게 표현
+
+  4. PURPOSE — 이 논문이 단락의 목적에 맞게 인용됐는가?
+     - 'appropriate': 방법론, 근거, 배경 등 인용 목적이 논문 성격과 일치
+     - 'misaligned': 예를 들어 방법론 논문을 임상 근거로, 동물실험을 인체 근거로 인용
+
+  각 항목에 대해 verdict와 1문장 explanation을 반환하세요.
+  Overall: 4항목 중 하나라도 문제가 있으면 'concern', 모두 적절하면 'appropriate'.
+  Overall이 'concern'이면 severity도 판정: 'minor'(표현 차이) 또는 'major'(방향 오류/왜곡).
+
+  JSON으로 반환:
+  {
+    "faithfulness": {"verdict": "...", "explanation": "..."},
+    "direction":    {"verdict": "...", "explanation": "..."},
+    "scope":        {"verdict": "...", "explanation": "..."},
+    "purpose":      {"verdict": "...", "explanation": "..."},
+    "overall":      "appropriate|concern",
+    "severity":     "none|minor|major",
+    "summary":      "1-2문장 종합 의견"
+  }
 ```
 
 ---

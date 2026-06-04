@@ -21,11 +21,23 @@ Markdown 리포트와 .docx 리포트로 렌더링한다.
       "pages":  {"user": "...", "ground_truth": "...", "match": true|false}
     },
     "claim_support": "supported|partially_supported|not_in_abstract|contradicted|null",
+    "citation_appropriateness": {
+      "faithfulness": {"verdict": "accurate|exaggerated|understated|misrepresented", "explanation": "..."},
+      "direction":    {"verdict": "correct|reversed|not_applicable", "explanation": "..."},
+      "scope":        {"verdict": "appropriate|overstated|understated", "explanation": "..."},
+      "purpose":      {"verdict": "appropriate|misaligned", "explanation": "..."},
+      "overall":      "appropriate|concern",
+      "severity":     "none|minor|major",
+      "summary":      "..."
+    },
     "corrected_citation_vancouver": "...",
     "notes": "..."
   },
   ...
 ]
+
+citation_appropriateness는 원고 본문이 함께 제공된 경우에만 채워진다 (Q7).
+reference list만 검증한 경우 null.
 
 CLI:
   python render_report.py verifications.json --md report.md
@@ -54,10 +66,63 @@ VERDICT_DESC = {
     "unverifiable": "도구 호출이 실패했거나 식별 정보가 부족하여 검증할 수 없었습니다.",
 }
 
+APPROPRIATENESS_BADGE = {
+    ("appropriate", "none"):  "APPROPRIATE",
+    ("concern", "minor"):     "MINOR CONCERN",
+    ("concern", "major"):     "MAJOR CONCERN",
+}
+
+FAITHFULNESS_LABEL = {
+    "accurate":        "Accurate",
+    "exaggerated":     "Exaggerated",
+    "understated":     "Understated",
+    "misrepresented":  "Misrepresented",
+}
+DIRECTION_LABEL = {
+    "correct":         "Correct",
+    "reversed":        "REVERSED",
+    "not_applicable":  "N/A",
+}
+SCOPE_LABEL = {
+    "appropriate":  "Appropriate",
+    "overstated":   "Overstated",
+    "understated":  "Understated",
+}
+PURPOSE_LABEL = {
+    "appropriate":  "Appropriate",
+    "misaligned":   "Misaligned",
+}
+
 
 # --------------------------------------------------------------------------- #
 # Markdown                                                                    #
 # --------------------------------------------------------------------------- #
+
+
+def appropriateness_md(ca: dict[str, Any]) -> list[str]:
+    """citation_appropriateness 딕셔너리 → Markdown 블록."""
+    overall = ca.get("overall", "")
+    severity = ca.get("severity", "none")
+    badge = APPROPRIATENESS_BADGE.get((overall, severity), overall.upper())
+
+    lines = [f"**Citation Appropriateness (Q7): [{badge}]**", ""]
+    if ca.get("summary"):
+        lines += [f"> {ca['summary']}", ""]
+
+    rows = ["| Dimension | Verdict | Explanation |", "|---|---|---|"]
+    for dim, label_map in [
+        ("faithfulness", FAITHFULNESS_LABEL),
+        ("direction",    DIRECTION_LABEL),
+        ("scope",        SCOPE_LABEL),
+        ("purpose",      PURPOSE_LABEL),
+    ]:
+        d = ca.get(dim) or {}
+        v = d.get("verdict", "—")
+        label = label_map.get(v, v)
+        exp = (d.get("explanation") or "—").replace("|", "\\|")
+        rows.append(f"| {dim.capitalize()} | {label} | {exp} |")
+    lines += rows
+    return lines
 
 
 def field_table_md(field_diffs: dict[str, Any]) -> str:
@@ -77,11 +142,22 @@ def render_md(verifications: list[dict[str, Any]]) -> str:
     for v in verifications:
         counts[v.get("verdict", "unverifiable")] = counts.get(v.get("verdict", "unverifiable"), 0) + 1
 
+    # Appropriateness 통계 (Q7이 실행된 경우)
+    ca_total = sum(1 for v in verifications if v.get("citation_appropriateness"))
+    ca_concern = sum(
+        1 for v in verifications
+        if (v.get("citation_appropriateness") or {}).get("overall") == "concern"
+    )
+    ca_major = sum(
+        1 for v in verifications
+        if (v.get("citation_appropriateness") or {}).get("severity") == "major"
+    )
+
     lines = [
         "# Reference Verification Report",
         "",
-        "본 리포트는 Chain-of-Verification (CoVe; Dhuliawala et al., ACL Findings 2024) 기법의 ",
-        "Factor+Revise 변형을 적용해 작성되었습니다. 각 reference의 PMID/DOI/저자/제목/저널/연도/권/페이지 ",
+        "본 리포트는 Chain-of-Verification (CoVe; Dhuliawala et al., ACL Findings 2024) 기법의 "
+        "Factor+Revise 변형을 적용해 작성되었습니다. 각 reference의 PMID/DOI/저자/제목/저널/연도/권/페이지 "
         "atomic field들이 PubMed 도구 호출의 직접 반환값과 비교 검증되었습니다.",
         "",
         "## Summary",
@@ -91,6 +167,15 @@ def render_md(verifications: list[dict[str, Any]]) -> str:
         f"- Partial mismatch: **{counts.get('partial_mismatch', 0)}**",
         f"- Hallucinated: **{counts.get('hallucinated', 0)}**",
         f"- Unverifiable: **{counts.get('unverifiable', 0)}**",
+    ]
+    if ca_total:
+        lines += [
+            "",
+            f"**Citation Appropriateness (Q7, {ca_total}개 검토)**",
+            f"- Concern: **{ca_concern}** (Major: **{ca_major}**)",
+            f"- Appropriate: **{ca_total - ca_concern}**",
+        ]
+    lines += [
         "",
         "## Verdict 정의",
         "",
@@ -106,7 +191,7 @@ def render_md(verifications: list[dict[str, Any]]) -> str:
         lines += [
             f"### {idx}. {badge}",
             "",
-            f"**Original (as written):**",
+            "**Original (as written):**",
             "",
             f"> {v.get('raw', '').strip()}",
             "",
@@ -118,6 +203,11 @@ def render_md(verifications: list[dict[str, Any]]) -> str:
         cs = v.get("claim_support")
         if cs:
             lines += [f"**In-text claim support (abstract-based):** `{cs}`", ""]
+
+        ca = v.get("citation_appropriateness")
+        if ca:
+            lines += appropriateness_md(ca) + [""]
+
         if v.get("corrected_citation_vancouver"):
             lines += [
                 "**Suggested corrected citation (Vancouver):**",
@@ -210,6 +300,32 @@ def render_docx(verifications: list[dict[str, Any]], out_path: Path) -> None:
             p2 = doc.add_paragraph()
             p2.add_run("In-text claim support (abstract): ").bold = True
             p2.add_run(cs)
+
+        ca = v.get("citation_appropriateness")
+        if ca:
+            overall = ca.get("overall", "")
+            severity = ca.get("severity", "none")
+            badge = APPROPRIATENESS_BADGE.get((overall, severity), overall.upper())
+            doc.add_heading(f"Citation Appropriateness: [{badge}]", level=3)
+            if ca.get("summary"):
+                doc.add_paragraph(ca["summary"])
+            ca_table = doc.add_table(rows=1, cols=3)
+            ca_table.style = "Light Grid Accent 1"
+            ch = ca_table.rows[0].cells
+            ch[0].text = "Dimension"
+            ch[1].text = "Verdict"
+            ch[2].text = "Explanation"
+            for dim, label_map in [
+                ("faithfulness", FAITHFULNESS_LABEL),
+                ("direction",    DIRECTION_LABEL),
+                ("scope",        SCOPE_LABEL),
+                ("purpose",      PURPOSE_LABEL),
+            ]:
+                d = ca.get(dim) or {}
+                crow = ca_table.add_row().cells
+                crow[0].text = dim.capitalize()
+                crow[1].text = label_map.get(d.get("verdict", ""), d.get("verdict", "—"))
+                crow[2].text = d.get("explanation") or "—"
 
         if v.get("corrected_citation_vancouver"):
             p3 = doc.add_paragraph()
