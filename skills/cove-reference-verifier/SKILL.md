@@ -22,7 +22,7 @@ description: Chain-of-Verification (Dhuliawala et al., ACL Findings 2024)을 적
 
 CoVe 논문 Section 3과 본 skill의 `references/cove_method.md`에서 도출된 4가지 비협상(non-negotiable) 원칙:
 
-1. **Factored execution**: 각 verification question은 **독립된 도구 호출**로 답한다. 이전 답변이나 사용자 원본 reference 텍스트가 prompt context에 같이 들어가지 않게 하라. 함께 들어가면 LLM이 hallucination을 그대로 복제한다 (논문 Section 3.3, Wikidata Joint Prec 0.29 vs Factored 0.32).
+1. **Factored execution**: 각 verification question(Q1–Q7)은 **독립된 도구 호출**로 답한다. 이전 답변이나 사용자 원본 reference 텍스트가 verification prompt context에 같이 들어가지 않게 하라. 함께 들어가면 LLM이 hallucination을 그대로 복제한다 (논문 Section 3.3, Wikidata Joint Prec 0.29 vs Factored 0.32). (단 Phase 4 cross-check은 원문 대조가 목적인 별도 단계이므로 이 규칙의 예외다 — Phase 4 참조.)
 2. **Tool-grounded only**: PMID·저자·제목 등은 **PubMed MCP 도구가 직접 반환한 값만** ground truth로 사용한다. 도구가 반환하지 않은 정보는 LLM이 "기억해서" 채워 넣지 말 것. 도구 실패 시 `unverifiable`로 표시한다.
 3. **Open question**: yes/no verification 사용 금지. "Is the author X?" 대신 "Who are the authors?" (논문 Table 4: open 0.22 > yes/no 0.19).
 4. **Atomic 분해**: 한 reference에 대해 최대 6개 atomic question으로 분해. Shortform이 longform보다 정확 (논문 Section 4.3: 17% → 70%).
@@ -39,10 +39,12 @@ CoVe 논문 Section 3과 본 skill의 `references/cove_method.md`에서 도출�
 
 사용자의 입력에서 reference 항목을 추출하고 atomic field로 분해한다.
 
+> **경로 주의**: `scripts/`·`references/`는 이 SKILL.md가 있는 `skills/cove-reference-verifier/`가 아니라 **플러그인 루트**에 있다. 스킬 실행 시 작업 디렉터리가 플러그인 루트라는 보장이 없으므로, 아래 예시처럼 플러그인 루트를 가리키는 `${CLAUDE_PLUGIN_ROOT}`로 절대경로화해 호출한다. (해당 환경변수가 없는 수동 실행 시에는 플러그인 루트 경로로 치환.)
+
 ```bash
-python scripts/parse_references.py <input_path> -o /tmp/refs.json
+python "${CLAUDE_PLUGIN_ROOT}/scripts/parse_references.py" <input_path> -o /tmp/refs.json
 # 또는 stdin:
-cat manuscript.md | python scripts/parse_references.py
+cat manuscript.md | python "${CLAUDE_PLUGIN_ROOT}/scripts/parse_references.py"
 ```
 
 지원 입력:
@@ -61,7 +63,7 @@ cat manuscript.md | python scripts/parse_references.py
 **In-text claim + context 추출 (선택)**: 사용자가 manuscript 본문도 제공한 경우 아래 스크립트를 실행한다.
 
 ```bash
-python scripts/extract_claims.py <manuscript_path> --refs /tmp/refs.json -o /tmp/refs.json
+python "${CLAUDE_PLUGIN_ROOT}/scripts/extract_claims.py" <manuscript_path> --refs /tmp/refs.json -o /tmp/refs.json
 ```
 
 - `in_text_claim`: citation이 등장하는 문장 (citation 마크업 제거). Q6에서 사용.
@@ -131,15 +133,22 @@ python scripts/extract_claims.py <manuscript_path> --refs /tmp/refs.json -o /tmp
 
 ### Phase 4 — Cross-check & Final Verified Response (논문 Step 4, Factor+**Revise**)
 
-Reference별로 별도 cross-check prompt를 실행하여 verdict와 field-level diff를 확정 (`references/verification_prompts.md`의 cross-check 섹션). Verdict 규칙:
+Reference별로 별도 cross-check prompt를 실행하여 verdict와 field-level diff를 확정 (`references/verification_prompts.md`의 cross-check 섹션).
+
+**중요 — 두 층위의 verdict를 분리한다**: ① reference의 **존재·메타데이터** 정확성(verdict)과 ② 본문 주장에 대한 **claim-support**(claim_support 필드)는 별개다. 특히 `claim_support=not_in_abstract`는 "거짓"이 아니라 "abstract만으로는 확인 불가(full text 필요)"라는 뜻이므로, **메타데이터가 모두 일치하는 정상 reference를 `partial_mismatch`로 강등시키지 않는다.** 이 경우 verdict는 `verified`로 두되 `claim_support`에 `not_in_abstract`를 그대로 보존해 리포트에서 "abstract로 확인 불가" 배지로 표기한다.
+
+Verdict 규칙:
 
 ```
 hallucinated     ← (Q1 실패 AND Q2 미발견) OR (title 유사도 < 0.4)
 unverifiable     ← Q1·Q2 모두 도구 오류/미호출
 partial_mismatch ← Q1 성공이지만 author/title/year/journal 중 ≥1개 mismatch
-                   OR claim_support ∈ {partially_supported, not_in_abstract}
+                   OR claim_support ∈ {partially_supported, contradicted}
+                   (※ not_in_abstract는 강등 사유에서 제외 — 아래 verified 참조)
 verified         ← Q1 성공 AND 모든 field match=True
-                   AND claim_support ∈ {supported, null}
+                   AND claim_support ∈ {supported, not_in_abstract, null}
+                   (※ not_in_abstract면 verdict는 verified이되 claim_support 필드에
+                      값을 보존하여 "full text 필요" 배지로 표기)
 verified_no_pmid ← 사용자 reference에 PMID/DOI가 없었지만 Q2(title+author 역검색)로
                    PMID를 확인했고 모든 field가 일치하는 경우.
                    verdict="verified"로 기록하되 notes에
@@ -150,7 +159,7 @@ verified_no_pmid ← 사용자 reference에 PMID/DOI가 없었지만 Q2(title+au
 각 reference의 cross-check 결과를 모아 verifications JSON 배열로 저장한 뒤 리포트를 렌더링:
 
 ```bash
-python scripts/render_report.py /tmp/verifications.json \
+python "${CLAUDE_PLUGIN_ROOT}/scripts/render_report.py" /tmp/verifications.json \
   --md /tmp/report.md \
   --docx "/Users/kh_jeon/Documents/Claude/Projects/FASTCAMPUS II/reference_verification_report.docx"
 ```
@@ -229,7 +238,7 @@ claude-cove-reference-verifier/
 │       └── SKILL.md                      # 본 파일
 ├── references/
 │   ├── cove_method.md                    # CoVe 논문 핵심 + 본 skill의 4 원칙
-│   └── verification_prompts.md           # Q1–Q6 + cross-check prompt 템플릿
+│   └── verification_prompts.md           # Q1–Q7 + cross-check prompt 템플릿
 ├── scripts/
 │   ├── parse_references.py               # Phase 1: docx/md/txt → atomic JSON
 │   └── render_report.py                  # Phase 4: verifications.json → md/docx 리포트

@@ -22,7 +22,8 @@ Reference parser for the cove-reference-verifier skill.
       "year": "2024" or null,
       "volume": "..." or null,
       "pages": "..." or null,
-      "in_text_claim": null   # 별도 추출 단계에서 채움
+      "in_text_claim": null,   # 별도 추출 단계(extract_claims.py)에서 채움
+      "in_text_context": null  # 별도 추출 단계(extract_claims.py)에서 채움
     },
     ...
   ]
@@ -82,6 +83,11 @@ RE_REF_HEADER = re.compile(
 # 번호 매김 패턴: "1.", "1)", "[1]", "(1)" 등
 RE_NUMBERED_ITEM = re.compile(r"^\s*(?:\[(\d+)\]|\((\d+)\)|(\d+)[\.\)])\s+(.*)$")
 
+# APA author unit: "Lastname, F. M." (성, 이니셜). ", &" / ", " 로 연결된 다수 저자 분리에 사용.
+RE_APA_AUTHOR = re.compile(
+    r"([A-Z][A-Za-z'’\-]+(?:\s+[A-Z][A-Za-z'’\-]+)*),\s*((?:[A-Z]\.\s*){1,4})"
+)
+
 
 # --------------------------------------------------------------------------- #
 # Loaders                                                                     #
@@ -113,36 +119,71 @@ def extract_reference_section(text: str) -> str:
     return text
 
 
+def _looks_like_reference(line: str) -> bool:
+    """한 줄이 그 자체로 완결된 reference처럼 보이는지 판정.
+
+    줄 단위로 나뉜 reference 리스트(번호·빈 줄 없이 "한 줄에 한 reference")를
+    감지하기 위한 휴리스틱. wrapping된 한 reference의 중간 줄(저자/제목 일부)은
+    보통 연도나 PMID/DOI로 끝나지 않으므로 False가 된다.
+    """
+    if RE_PMID.search(line) or RE_DOI.search(line):
+        return True
+    # 연도를 포함하고 마침표로 끝나면 완결된 인용으로 간주
+    return bool(RE_YEAR.search(line) and line.rstrip().endswith("."))
+
+
 def split_into_items(ref_text: str) -> list[str]:
     """Reference 섹션 텍스트를 항목 단위로 분리.
 
-    번호식 ("1. ...", "[1] ...") 우선, 없으면 빈 줄 기준으로 split.
+    우선순위:
+      1) 번호식 ("1. ...", "[1] ...")이 하나라도 있으면 번호 기준 분리.
+      2) 번호가 없으면 빈 줄 기준으로 블록을 나눈 뒤,
+         한 블록 안의 모든 줄이 각각 완결된 reference처럼 보이면
+         (= "한 줄에 한 reference" 입력) 줄 단위로 분리한다.
+         그렇지 않으면(=여러 줄에 걸쳐 wrapping된 한 reference) 블록을 합친다.
     """
-    items: list[str] = []
-    current: list[str] = []
-    saw_numbered = False
+    lines = ref_text.splitlines()
 
-    for line in ref_text.splitlines():
-        m = RE_NUMBERED_ITEM.match(line)
-        if m:
-            saw_numbered = True
-            if current:
-                items.append(" ".join(current).strip())
-                current = []
-            current.append(m.group(4))
-        else:
-            stripped = line.strip()
-            if not stripped:
-                if current and not saw_numbered:
+    # 1) 번호식 우선
+    if any(RE_NUMBERED_ITEM.match(ln) for ln in lines):
+        items: list[str] = []
+        current: list[str] = []
+        for line in lines:
+            m = RE_NUMBERED_ITEM.match(line)
+            if m:
+                if current:
                     items.append(" ".join(current).strip())
                     current = []
-                continue
+                current.append(m.group(4))
+            else:
+                stripped = line.strip()
+                if stripped:
+                    current.append(stripped)
+        if current:
+            items.append(" ".join(current).strip())
+        return [it for it in items if it]
+
+    # 2) 번호 없음 → 빈 줄 기준 블록 분리
+    blocks: list[list[str]] = []
+    current = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped:
             current.append(stripped)
-
+        elif current:
+            blocks.append(current)
+            current = []
     if current:
-        items.append(" ".join(current).strip())
+        blocks.append(current)
 
-    # 비어있는 항목 제거
+    # 3) 블록별로 "한 줄에 한 reference"인지 판정
+    items = []
+    for block in blocks:
+        if len(block) > 1 and all(_looks_like_reference(ln) for ln in block):
+            items.extend(block)
+        else:
+            items.append(" ".join(block).strip())
+
     return [it for it in items if it]
 
 
@@ -175,9 +216,31 @@ def extract_year(s: str) -> str | None:
 
 
 def _split_authors(authors_str: str) -> list[str]:
-    """Author 문자열을 개별 저자 리스트로 분리 (et al. 제거)."""
+    """Vancouver/AMA author 문자열을 개별 저자 리스트로 분리 (et al. 제거).
+
+    Vancouver/AMA는 저자 내부에 콤마가 없으므로 ("Smith J, Doe A")
+    콤마/and/& 기준 split이 안전하다.
+    """
     cleaned = re.sub(r"\bet\s+al\.?", "", authors_str, flags=re.IGNORECASE).strip(", ")
     return [a.strip().rstrip(".") for a in re.split(r",\s*|\s+and\s+|&\s*", cleaned) if a.strip()]
+
+
+def _split_authors_apa(authors_str: str) -> list[str]:
+    """APA author 문자열을 개별 저자 리스트로 분리.
+
+    APA는 "Smith, J., & Doe, A." 처럼 **저자 내부에 콤마**(성, 이니셜)가 있어
+    단순 콤마 split이 성/이니셜을 쪼갠다. "Lastname, F. M." 단위를 정규식으로
+    묶어 "Lastname F M" 형태(Vancouver 표기)로 정규화한다.
+    """
+    cleaned = re.sub(r"\bet\s+al\.?", "", authors_str, flags=re.IGNORECASE)
+    authors: list[str] = []
+    for m in RE_APA_AUTHOR.finditer(cleaned):
+        last = m.group(1).strip()
+        initials = re.sub(r"[.\s]+", " ", m.group(2)).strip()
+        name = f"{last} {initials}".strip()
+        authors.append(re.sub(r"\s+", " ", name))
+    # 패턴이 하나도 안 맞으면 generic splitter로 fallback
+    return authors if authors else _split_authors(authors_str)
 
 
 def _is_apa(item: str) -> bool:
@@ -203,7 +266,7 @@ def extract_authors_title_journal(item: str) -> dict[str, Any]:
         # 저널은 콤마 기준 첫 토큰 (APA: "J Med Sci, 12(3), 45-60.")
         journal_raw = apa_parts[1].strip() if len(apa_parts) > 1 else None
         journal = journal_raw.split(",")[0].strip() if journal_raw else None
-        return {"authors": _split_authors(authors_str), "title": title, "journal": journal}
+        return {"authors": _split_authors_apa(authors_str), "title": title, "journal": journal}
 
     # Vancouver/AMA: 첫 마침표+공백 = author 끝
     parts = re.split(r"(?<=[\w\)])\.\s+", item, maxsplit=3)
@@ -260,6 +323,7 @@ def parse_one(idx: int, raw: str) -> dict[str, Any]:
         "volume": vol,
         "pages": pages,
         "in_text_claim": None,
+        "in_text_context": None,
     }
 
 

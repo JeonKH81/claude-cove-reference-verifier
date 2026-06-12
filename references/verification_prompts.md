@@ -1,6 +1,8 @@
 # Verification Prompt 템플릿
 
-본 문서는 SKILL.md의 Phase 2 (Plan Verifications)와 Phase 3 (Execute Verifications, Factored)에서 호출하는 표준 prompt들을 정의한다. 각 prompt는 **단일 atomic fact**만을 묻고, **원본 reference 문자열은 절대 prompt에 포함하지 않는다** (Factored 원칙).
+본 문서는 SKILL.md의 Phase 2 (Plan Verifications)와 Phase 3 (Execute Verifications, Factored)에서 호출하는 표준 prompt들을 정의한다. 각 verification prompt(Q1–Q7)는 **단일 atomic fact**만을 묻고, **원본 reference 문자열을 포함하지 않는다** (Factored 원칙 — 원문을 같이 넣으면 LLM이 hallucination을 복제한다).
+
+> **범위 구분**: 이 "원문 미포함" 규칙은 **Q1–Q7 verification prompt에만** 적용된다. Phase 4의 **cross-check(Revise) prompt는 예외**로, user reference 원문과 PubMed ground truth를 **대조**하는 것이 그 단계의 목적이므로 `raw_text`(원본 문자열)를 의도적으로 입력받는다(아래 Phase 4 참조). 즉 "절대 금지"는 Q1–Q7 한정이고, cross-check은 허용이다.
 
 ---
 
@@ -215,13 +217,17 @@ Output (strict JSON):
 
 ### Verdict 결정 규칙
 
+**존재·메타데이터 verdict와 claim-support는 분리한다.** `not_in_abstract`는 "거짓"이 아니라 "abstract만으로는 확인 불가(full text 필요)"이므로 메타데이터가 일치하는 정상 reference를 강등시키지 않는다.
+
 ```
 hallucinated   ← (Q1=False AND Q2=not_found) OR (title 유사도 < 0.4)
 unverifiable   ← (Q1=null AND Q2=null)  # 도구 미호출/오류
 partial_mismatch ← Q1=True 이지만 author/title/year 중 ≥1개 mismatch
-                 OR claim_support ∈ {partially_supported, not_in_abstract}
+                 OR claim_support ∈ {partially_supported, contradicted}
+                 # not_in_abstract는 강등 사유 아님
 verified       ← Q1=True AND 모든 field match=True
-                 AND claim_support ∈ {supported, null}
+                 AND claim_support ∈ {supported, not_in_abstract, null}
+                 # not_in_abstract면 verdict=verified, 단 claim_support 값은 보존해 "full text 필요" 배지로 표기
 ```
 
 ---
@@ -230,5 +236,5 @@ verified       ← Q1=True AND 모든 field match=True
 
 - LLM이 PMID를 "기억"해서 채우지 말 것 — 반드시 도구가 반환한 값만 사용.
 - 도구 호출이 실패한 경우 추정 금지. `unverifiable`로 표시.
-- 사용자 원본 reference 텍스트를 verification prompt에 넣지 말 것 (atomic field만 전달).
+- 사용자 원본 reference 텍스트를 **Q1–Q7 verification prompt**에 넣지 말 것 (atomic field만 전달). 단 Phase 4 **cross-check prompt는 예외** — 원문 대조가 목적이므로 `raw_text`를 허용한다.
 - Yes/No verification 사용 금지 — open question 전용.
