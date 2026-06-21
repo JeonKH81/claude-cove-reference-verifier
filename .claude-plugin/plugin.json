@@ -1,8 +1,13 @@
 {
   "name": "cove-reference-verifier",
+  "version": "1.0.1",
   "description": "Detects and corrects reference hallucinations in academic manuscripts using Chain-of-Verification (CoVe). Verifies each citation against PubMed ground truth and produces a structured report with field-level diffs and corrected Vancouver citations.",
   "author": {
     "name": "Kihyun Jeon",
     "email": "imcardio@gmail.com"
-  }
+  },
+  "homepage": "https://github.com/JeonKH81/claude-cove-reference-verifier",
+  "repository": "https://github.com/JeonKH81/claude-cove-reference-verifier",
+  "license": "MIT",
+  "keywords": ["reference-verification", "citation-check", "chain-of-verification", "pubmed", "hallucination", "manuscript", "vancouver"]
 }

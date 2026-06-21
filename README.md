@@ -63,15 +63,26 @@ cove-reference-verifier/
 
 ## Installation
 
-### Option 1 — Claude Code plugin install (recommended)
+### Option 1 — GitHub 마켓플레이스 (recommended)
 
 Claude Code에서 아래 명령어를 실행하세요:
 
 ```
-/plugin install github:JeonKH81/claude-cove-reference-verifier
+/plugin marketplace add JeonKH81/claude-cove-reference-verifier
+/plugin install cove-reference-verifier@cove-reference-verifier
 ```
 
 설치 후 Claude Code를 재시작하면 바로 사용할 수 있습니다.
+
+### Option 1b — zip 단독 (오프라인 / GitHub 불필요)
+
+릴리스의 `cove-reference-verifier-vX.Y.Z.zip` 하나만 있으면 됩니다. 압축을 풀면 그 폴더가 곧 마켓플레이스입니다(`.claude-plugin/marketplace.json`, `source: "."`).
+
+```bash
+unzip cove-reference-verifier-v1.0.1.zip
+/plugin marketplace add ./cove-reference-verifier
+/plugin install cove-reference-verifier@cove-reference-verifier
+```
 
 ### Option 2 — Manual clone
 
