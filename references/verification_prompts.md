@@ -28,6 +28,19 @@
 
 ## Phase 3 — Execute Verifications (Factored, 독립 prompt)
 
+> **도구 표기 규약**: 아래 템플릿의 `mcp__pubmed__*`는 **기능 이름을 가리키는 표기**이지 실제 도구 ID가 아니다. 실제 접두사는 환경마다 다르므로(`mcp__claude_ai_PubMed__*` 등) 사용 가능한 도구 목록에서 PubMed 계열을 찾아 대응시킨다.
+>
+> MCP가 아예 없는 환경에서는 번들 폴백으로 대체한다 — 반환 필드 모양이 같으므로 아래 해석 규칙은 그대로 적용된다:
+>
+> | 템플릿의 호출 | 폴백 대체 |
+> |---|---|
+> | `get_article_metadata(pmids=[...])` | `pubmed_lookup.py --pmids ...` |
+> | `convert_article_ids(ids=[doi])` | `pubmed_lookup.py --doi ...` |
+> | `search_articles(...)` | `pubmed_lookup.py --search ...` |
+> | `lookup_article_by_citation(...)` | `pubmed_lookup.py --citation "저널\|연도\|권\|시작쪽\|저자"` |
+>
+> 폴백은 존재하지 않는 PMID를 `not_found[]`로 분리해 돌려준다(echo 안 함). 조회 자체가 실패하면 exit code 2 + `{"status": "lookup_failed"}` — 이때는 `hallucinated`가 아니라 `unverifiable`이다.
+
 ### Q1 prompt template (Existence)
 
 **중요 도구 동작**: PubMed MCP의 `convert_article_ids`는 입력 PMID가 존재하지 않아도 같은 PMID를 echo해서 돌려준다. 따라서 단독으로는 존재 검증에 부적합하다. 반드시 `get_article_metadata`의 응답에 해당 PMID가 실제로 들어있는지 (`count` 필드 또는 articles 배열에 매핑이 있는지) 확인해야 한다.

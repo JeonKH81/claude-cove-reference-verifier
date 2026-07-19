@@ -201,11 +201,30 @@ DOI는 `convert_article_ids`로 PMID 변환 → 이후 동일 워크플로우.
 
 ## 도구 의존성
 
-**필수**:
-- PubMed MCP (Cowork mode에서 자동 로드되는 `mcp__d2d22bd4-...` 도구군):
+**필수**: 아래 두 경로 중 **하나**. 세션 시작 시 어느 쪽이 쓸 수 있는지 먼저 확인하고, 리포트에 어느 경로를 썼는지 남긴다.
+
+*경로 1 — PubMed MCP (권장)*
+
+Cowork 전용이 아니다. claude.ai 커넥터에 PubMed를 연결하면 Claude Code(CLI·VS Code 확장·데스크톱 앱)에서도 동일하게 로드된다. 도구 이름은 환경에 따라 접두사가 다르므로(`mcp__claude_ai_PubMed__*` 등) **이름을 하드코딩하지 말고 사용 가능한 도구 목록에서 PubMed 계열을 찾아 쓴다.** 필요한 기능:
   - `search_articles`, `get_article_metadata`, `convert_article_ids`,
     `lookup_article_by_citation`, `find_related_articles`
-- Python 3.10+ 표준 라이브러리
+
+*경로 2 — E-utilities 폴백 (커넥터 없을 때)*
+
+MCP가 없으면 번들 스크립트로 NCBI 공개 API를 직접 호출한다. 키·로그인 불필요, 반환 필드는 MCP와 동일한 모양이라 이후 검증 로직은 그대로 쓴다.
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/pubmed_lookup.py" --pmids 21150449 34575667
+python "${CLAUDE_PLUGIN_ROOT}/scripts/pubmed_lookup.py" --doi 10.1097/FJC.0b013e318207a35f
+python "${CLAUDE_PLUGIN_ROOT}/scripts/pubmed_lookup.py" --citation "Nature|2020|580|123|Smith"
+python "${CLAUDE_PLUGIN_ROOT}/scripts/pubmed_lookup.py" --search "atrial fibrillation" --max 5
+```
+
+- **존재 검증**: `--pmids` 응답의 `articles[]`에 실제로 들어있는 PMID만 존재하는 것이다. 요청했는데 안 돌아온 PMID는 `not_found[]`에 담긴다 — 이것이 `hallucinated` 판정 근거다. 스크립트는 입력 PMID를 절대 echo하지 않는다.
+- **조회 실패 ≠ 존재하지 않음**: 네트워크·rate limit 오류는 stderr에 `{"status": "lookup_failed"}`로 나오고 exit code 2다. 이 경우 `hallucinated`가 아니라 `unverifiable`로 처리한다.
+- 무인증 호출은 초당 약 3회로 제한된다(스크립트가 자동 간격 조절). `NCBI_API_KEY`가 있으면 초당 10회.
+
+- Python 3.10+ 표준 라이브러리 (폴백 스크립트는 외부 의존성 없음)
 
 **조건부**:
 - `python-docx` (입력이 .docx거나 .docx 리포트가 필요할 때)

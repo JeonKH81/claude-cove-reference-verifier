@@ -98,9 +98,28 @@ git clone https://github.com/JeonKH81/claude-cove-reference-verifier.git
 - /path/to/claude-cove-reference-verifier/skills/cove-reference-verifier/SKILL.md
 ```
 
-### Enable PubMed MCP
+### Enable PubMed (권장)
 
-이 플러그인은 PubMed MCP 도구가 필요합니다. [Claude Cowork](https://claude.ai/code) 환경에서 PubMed connector를 활성화하세요.
+이 플러그인은 PubMed 조회가 필요합니다. 두 가지 경로가 있고, **둘 중 하나만 있으면 됩니다.**
+
+**경로 1 — PubMed MCP 커넥터 (권장)**
+
+claude.ai의 커넥터 설정에서 PubMed를 활성화하세요. 한 번 연결하면 **Claude Code(CLI·VS Code 확장·데스크톱 앱)와 Cowork 모두에서** 동일하게 동작합니다. Cowork 전용이 아닙니다.
+
+**경로 2 — 폴백: PubMed E-utilities (커넥터 불필요)**
+
+커넥터가 없으면 번들 스크립트가 NCBI E-utilities 공개 API를 직접 호출합니다. API 키·로그인 없이 동작합니다.
+
+```bash
+python scripts/pubmed_lookup.py --pmids 21150449
+```
+
+인터넷 연결이 필요하며, 무인증 호출은 초당 약 3회로 제한됩니다(스크립트가 자동으로 간격을 둡니다). NCBI 권장에 따라 연락처를 남기려면:
+
+```bash
+export NCBI_EMAIL="you@example.com"   # 선택
+export NCBI_API_KEY="..."             # 선택, 있으면 초당 10회
+```
 
 ### Install python-docx (optional)
 
@@ -112,8 +131,8 @@ pip install python-docx
 
 ## Requirements
 
-- Claude Code (CLI or desktop app)
-- PubMed MCP connector (Cowork mode)
+- Claude Code (CLI, VS Code extension, or desktop app) — Cowork도 지원
+- PubMed 조회 경로 **하나**: MCP 커넥터(권장) 또는 번들된 E-utilities 폴백 스크립트
 - Python 3.10+
 - `python-docx` — `.docx` 입출력 시에만 필요
 
